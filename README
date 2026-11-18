@@ -1,1 +1,87 @@
+# Projekt 1 – model scoringowy/ratingowy z wyjaśnialnością i kalibracją do PD = 4%
+
+Dwa modele PD dla przedsiębiorstw (zbiór 5): karta WoE + regresja logistyczna (model interpretowalny) i LightGBM (black-box), z wyjaśnieniami SHAP / LIME / PDP-ICE, eksperymentami wierności i stabilności wyjaśnień, kalibracją do średniego PD = 4%, progiem decyzyjnym, skalą ratingową i analizą kontrfaktyczną.
+
+## Zawartość
+
+| Plik / katalog | Opis |
+|---|---|
+| `projekt1_scoring_rating.ipynb` | cały pipeline: dane → EDA → cechy → walidacja → modele → wyjaśnialność → kalibracja 4% → progi i ratingi |
+| `zbiór_5.csv` | dane wejściowe (nie modyfikowane) |
+| `requirements.txt` | wersje pakietów (zapisywane przez notebook w rozdziale 19) |
+| `MODEL_CARD.md` | karta modelu: cel, dane, ograniczenia, ryzyka, wyjaśnienia, kalibracja 4%, monitoring |
+| `artifacts/` | wyniki tworzone przez notebook (lista niżej) |
+| `artifacts/fig/` | wszystkie wykresy (PNG) |
+
+## Uruchomienie
+
+1. Python 3 (notebook wykonany w Pythonie 3.14) i pakiety:
+   ```bash
+   pip install -r requirements.txt
+   ```
+   Przy pierwszym uruchomieniu, przed wygenerowaniem `requirements.txt`, wystarczy:
+   ```bash
+   pip install numpy pandas scikit-learn scipy matplotlib seaborn joblib lightgbm shap lime jupyter
+   ```
+2. Plik `zbiór_5.csv` w tym samym katalogu co notebook (ścieżka: `DATA_PATH` w rozdziale 0).
+3. Uruchomienie całości:
+   ```bash
+   jupyter nbconvert --to notebook --execute --inplace projekt1_scoring_rating.ipynb
+   ```
+   albo w Jupyterze: **Kernel → Restart & Run All**. Część II korzysta z obiektów części I, dlatego notebook uruchamiamy zawsze w całości, od początku. Najdłużej trwają testy z rozdziału 9 i tuning LightGBM (rozdział 14).
+
+## Struktura notebooka
+
+| Rozdziały | Zakres | Wymaganie |
+|---|---|---|
+| 0–2 | konfiguracja, definicja PD, wczytanie danych, duplikaty, braki | 3.2 |
+| 3 | transformery (`FinancialCleaner`, `CategoryGrouper`, `WoEEncoder`, `ScoringFeatureBuilder`) | 3.2 |
+| 4–5 | podział train / validation / test, Stratified 5-fold CV, diagram walidacji, kontrola przecieku | 3.1 |
+| 6–7 | jakość danych, EDA | 3.2 |
+| 8 | binning monotoniczny, WoE, selekcja cech karty, przygotowanie cech black-boxa | 3.2 |
+| 9 | test pipeline'u: powtarzane CV, test permutacji etykiet, wrażliwość na `wsk_index_*`, stabilność selekcji | 3.1 |
+| 10–11 | zapis wyników części I, podsumowanie | – |
+| 12–13 | model interpretowalny: tuning, metryki, współczynniki, profile WoE, PDP/ICE, dekompozycja logitu, stabilność | 3.3 |
+| 14 | LightGBM: tuning z kontrolą przeuczenia, SHAP, PDP/ICE, LIME, what-if | 3.4 |
+| 15 | wierność i stabilność wyjaśnień, ograniczenia SHAP/LIME | 3.4 |
+| 16 | porównanie modeli, zamrożenie, wariant bez `wsk_index_*` | 3.4, 3.7 |
+| 17 | kalibracja: diagnostyka, intercept / Platt / izotoniczna / beta, korekta do PD = 4%, ocena na teście | 3.5 |
+| 18 | funkcja kosztu i próg, tabele decyzyjne, klasy ratingowe, audyt podgrup, analiza kontrfaktyczna | 3.6, 3.7 |
+| 19 | podsumowanie wyników na teście, zapis artefaktów i `requirements.txt` | – |
+
+## Zasady walidacji
+
+* Train (60%) – dopasowanie transformacji, wybór cech, hiperparametry (5-fold CV).
+* Validation (20%) – kalibracja, korekta do 4%, próg decyzyjny, granice klas ratingowych.
+* Test (20%) – wyłącznie ocena końcowa (rozdziały 17.4 i 18).
+* Wszystkie transformacje z parametrami są dopasowywane metodą `fit()` na train lub na foldzie treningowym.
+
+## Replikowalność
+
+* Seed: `RNG_SEED = 42` (rozdział 0) dla podziałów, CV, tuningu, LIME i bootstrapu.
+* Podziały i foldy: `artifacts/splits.json` (indeksy wierszy i pozycje).
+* Wersja danych: suma MD5 pliku w `artifacts/feature_manifest.json`.
+* Wersjonowanie cech: konfiguracja, lista cech karty i usunięte cechy w `feature_manifest.json`; dopasowane transformery w `feature_builders.joblib`.
+* Wczytanie plików `.joblib` poza notebookiem wymaga definicji klas z rozdziałów 3 i 12.1.
+
+## Artefakty (`artifacts/`)
+
+| Plik | Zawartość |
+|---|---|
+| `splits.json`, `feature_manifest.json` | podziały, foldy, konfiguracja, decyzje, suma kontrolna danych |
+| `feature_builders.joblib` | transformery WoE i black-box dopasowane na train |
+| `iv_table.csv`, `woe_bins_selected.csv` | IV wszystkich cech, przedziały WoE cech karty |
+| `dq_train.csv`, `univariate_train.csv` | jakość danych, jednowymiarowa siła cech (train) |
+| `X_{train,val,test}_{woe,bb}.csv` | zbiory po transformacji (z targetem) |
+| `models_frozen.joblib`, `models_frozen_params.json` | modele finalne i ich hiperparametry |
+| `calibration_ratings.joblib`, `calibration_decisions.json` | kalibratory, δ, progi, granice i etykiety klas |
+| `calibration_cv_comparison.csv` | porównanie metod kalibracji |
+| `predictions_val.csv`, `predictions_test.csv` | PD surowe, po kalibracji, po korekcie do 4% i klasa ratingowa |
+| `metrics_test.csv`, `decision_tables_test.csv`, `subgroup_audit_test.csv` | metryki na teście, tabele decyzyjne, audyt podgrup |
+
+## Konwencje
+
+* `default` = 1 – zdarzenie ryzyka; PD = P(default = 1).
+* WoE = ln(%dobrych / %złych) (Lab 1): WoE > 0 – ryzyko niższe od średniego, w karcie β < 0.
+* Klasy ratingowe: AAA … CCC na PD po korekcie do 4%; D – stwierdzony default (poza modelem).
 
